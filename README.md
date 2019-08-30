@@ -44,9 +44,9 @@ Serialize  Deserialize  Value type
 ✓          ✓            0x1a : true
 ✓          ✓            0x1b : double IEEE-754
                         0x1c : UTC-date
-                        0x1d : external (only in memory)
-                        0x1e : minKey
-                        0x1f : maxKey
+✗          ✗            0x1d : external (only in memory)
+✗          ✗            0x1e : minKey
+✗          ✗            0x1f : maxKey
 ✓          ✓            0x20-0x27 : signed int
 ✓          ✓            0x28-0x2f : uint
 ✓          ✓            0x30-0x39 : small integers
@@ -57,5 +57,5 @@ Serialize  Deserialize  Value type
 ✗          ✗            0xc8-0xcf : positive long packed BCD-encoded float
 ✗          ✗            0xd0-0xd7 : negative long packed BCD-encoded float
 ✗          ✗            0xd8-0xef : reserved
-```
 ✗          ✗            0xf0-0xff : custom types
+```
