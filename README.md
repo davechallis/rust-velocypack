@@ -59,3 +59,64 @@ Serialize  Deserialize  Value type
 ✗          ✗            0xd8-0xef : reserved
 ✗          ✗            0xf0-0xff : custom types
 ```
+
+## Example
+
+`Cargo.toml`:
+
+```
+[dependencies]
+velocypack = "0.1.0"
+serde = { version = "1.0", features = ["derive"] }
+```
+
+`src/main.rs`:
+
+```rust
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct Person {
+    name: String,
+    age: u8,
+    friends: Vec<Person>,
+}
+
+fn main() {
+    let p = Person {
+        name: "Bob".to_owned(),
+        age: 23,
+        friends: vec![
+            Person {
+                name: "Alice".to_owned(),
+                age: 42,
+                friends: Vec::new()
+            }
+        ]
+    };
+    println!("{:#04x?}", velocypack::to_bytes(&p).unwrap());
+}
+```
+
+Output can be checked using the
+[VelocyPack tools](https://github.com/arangodb/velocypack/tree/master/tools),
+e.g.:
+
+```
+$ cargo run > /tmp/bob.vpack && vpack-to-json --hex /tmp/bob.vpack /tmp/bob.json && cat /tmp/bob.json
+Successfully converted JSON infile '/tmp/bob.vpack'
+VPack Infile size: 63
+JSON Outfile size: 137
+{
+  "age" : 23,
+  "name" : "Bob",
+  "friends" : [
+    {
+      "age" : 42,
+      "name" : "Alice",
+      "friends" : [
+      ]
+    }
+  ]
+}
+```
