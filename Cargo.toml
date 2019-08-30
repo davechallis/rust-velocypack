@@ -1,0 +1,16 @@
+[package]
+name = "velocypack"
+version = "0.1.0"
+authors = ["Dave Challis <dave@suicas.net>"]
+description = "Implementation of ArangoDB's VelocyPack protocol."
+repository = "https://github.com/davechallis/rust-velocypack"
+license = "Apache-2.0"
+readme = "README.md"
+edition = "2018"
+
+[dependencies]
+serde = "1.0"
+
+[dev-dependencies]
+serde = {version = "1.0", features = ["derive"]}
+serde_json = "1.0"
