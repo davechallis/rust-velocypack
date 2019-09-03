@@ -114,6 +114,24 @@ impl<'de> Deserializer<'de> {
             _ => Err(Error::Message("ExpectedInteger".to_owned())),
         }
     }
+
+    fn parse_string(&mut self) -> Result<String> {
+        match self.peek_byte()? {
+            b if b >= 0x40 && b <= 0xbe => {
+                self.consume_bytes(1);
+                let length = (b - 0x40) as usize;
+                if length == 0 {
+                    return Ok(String::new())
+                }
+
+                match std::str::from_utf8(&self.input[..length]) {
+                    Ok(s) => Ok(s.to_owned()),
+                    Err(e) => Err(Error::Message("InvalidUtf8".to_owned()))
+                }
+            },
+            _ => Err(Error::Message("ExpectedString".to_owned())),
+        }
+    }
 }
 
 pub fn from_bytes<'a, T: Deserialize<'a>>(s: &'a [u8]) -> Result<T> {
@@ -141,6 +159,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             0x1b => self.deserialize_f64(visitor),
             x if (x >= 0x20 && x <= 0x27) || (x >= 0x3a && x <= 0x3f) => self.deserialize_i64(visitor),
             x if x >= 0x28 && x <= 0x39 => self.deserialize_u64(visitor),
+            x if x >= 0x40 && x <= 0xbe => self.deserialize_string(visitor),
             _ => Err(Error::Message("unimplemented".to_owned()))
         }
     }
@@ -212,7 +231,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
-        unimplemented!()
+        visitor.visit_string(self.parse_string()?)
     }
 
     fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value> where
@@ -368,5 +387,10 @@ mod tests {
         assert_eq!(from_bytes::<i8>(&[0x28, 0x7f]).unwrap(), std::i8::MAX);
         assert_eq!(from_bytes::<i8>(&[0x20, 0xf9]).unwrap(), -7_i8);
         assert_eq!(from_bytes::<i8>(&[0x28, 0x0a]).unwrap(), 10_i8);
+    }
+
+    #[test]
+    fn string() {
+        assert_eq!(from_bytes::<String>(&[0x40]).unwrap(), "".to_owned());
     }
 }
