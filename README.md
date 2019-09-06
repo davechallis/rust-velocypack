@@ -20,15 +20,15 @@ planned yet):
 ```
 Serialize  Deserialize  Value type
 ✗          ✗            0x00 : none
-✓                       0x01 : empty array
-✓                       0x02 : array without index table, 1-byte byte length
-✓                       0x03 : array without index table, 2-byte byte length
-✓                       0x04 : array without index table, 4-byte byte length
-✓                       0x05 : array without index table, 8-byte byte length
-✓                       0x06 : array with 1-byte index table offsets, bytelen and # subvals
-✓                       0x07 : array with 2-byte index table offsets, bytelen and # subvals
-✓                       0x08 : array with 4-byte index table offsets, bytelen and # subvals
-✓                       0x09 : array with 8-byte index table offsets, bytelen and # subvals
+✓          ✓            0x01 : empty array
+✓          ✓            0x02 : array without index table, 1-byte byte length
+✓          ✓            0x03 : array without index table, 2-byte byte length
+✓          ✓            0x04 : array without index table, 4-byte byte length
+✓          ✓            0x05 : array without index table, 8-byte byte length
+✓          ✓            0x06 : array with 1-byte index table offsets, bytelen and # subvals
+✓          ✓            0x07 : array with 2-byte index table offsets, bytelen and # subvals
+✓          ✓            0x08 : array with 4-byte index table offsets, bytelen and # subvals
+✓          ✓            0x09 : array with 8-byte index table offsets, bytelen and # subvals
 ✓                       0x0a : empty object
 ✓                       0x0b : object with 1-byte index table offsets, sorted by attribute name, 1-byte bytelen and # subvals
 ✓                       0x0c : object with 2-byte index table offsets, sorted by attribute name, 2-byte bytelen and # subvals

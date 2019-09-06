@@ -6,6 +6,7 @@ use serde::de::{
 
 use crate::error::{Error, Result};
 use std::convert::TryFrom;
+use crate::{U8_SIZE, U16_SIZE, U32_SIZE, U64_SIZE};
 
 pub struct Deserializer<'de> {
     input: &'de [u8],
@@ -21,6 +22,13 @@ impl<'de> Deserializer<'de> {
             Some(b) => Ok(*b),
             None => Err(Error::Message("eof".to_owned())),
         }
+    }
+
+    fn consume_padding(&mut self) -> Result<()> {
+        while self.peek_byte()? == 0x00 {
+            self.consume_bytes(1);
+        }
+        Ok(())
     }
 
     fn next_byte(&mut self) -> Result<u8> {
@@ -132,7 +140,7 @@ impl<'de> Deserializer<'de> {
                 }
             },
             b if b >= 0x40 && b <= 0xbe => {
-                self.consume_bytes(1);
+                self.consume_bytes(1); // header
                 let length = (b - 0x40) as usize;
                 if length == 0 {
                     return Ok(String::new())
@@ -171,6 +179,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         match self.peek_byte()? {
+            x if x >= 0x01 || x <= 0x09 => self.deserialize_seq(visitor),
             0x18 => self.deserialize_unit(visitor),
             0x19 | 0x1a => self.deserialize_bool(visitor),
             0x1b => self.deserialize_f64(visitor),
@@ -287,9 +296,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         unimplemented!()
     }
 
-    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value> where
+    fn deserialize_seq<V>(mut self, visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
-        unimplemented!()
+        visitor.visit_seq(ArrayDeserializer::new(&mut self))
     }
 
     fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value> where
@@ -332,11 +341,164 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     }
 }
 
+struct ArrayDeserializer<'a, 'de: 'a> {
+    de: &'a mut Deserializer<'de>,
+    index_size: Option<usize>,
+    remaining_items: Option<usize>,
+}
+
+impl<'a, 'de> ArrayDeserializer<'a, 'de> {
+    fn new(de: &'a mut Deserializer<'de>) -> Self {
+        Self { de, index_size: None, remaining_items: None }
+    }
+}
+
+impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
+    type Error = Error;
+
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>> where
+        T: DeserializeSeed<'de> {
+        if self.remaining_items.is_none() {
+            match self.de.peek_byte()? {
+                0x01 => {
+                    self.de.consume_bytes(1); // header
+                    self.remaining_items = Some(0);
+                },
+                0x02 => {
+                    self.de.consume_bytes(1); // header
+                    let mut bytes: [u8; U8_SIZE] = Default::default();
+                    bytes.copy_from_slice(&self.de.input[..U8_SIZE]);
+                    let byte_length = u8::from_le_bytes(bytes) as usize - 1 - U8_SIZE; // sub header + bytelen
+                    self.de.consume_bytes(U8_SIZE);
+                    self.de.consume_padding()?;
+
+                    // num items is unknown until first item is consumed
+                    let old_size = self.de.input.len();
+                    let v = seed.deserialize(&mut *self.de).map(Some);
+                    let item_size = old_size - self.de.input.len();
+                    let n_items = byte_length / item_size;
+                    self.remaining_items = Some(n_items - 1);
+                    return v;
+                },
+                0x03 => {
+                    self.de.consume_bytes(1); // header
+                    let mut bytes: [u8; U16_SIZE] = Default::default();
+                    bytes.copy_from_slice(&self.de.input[..U16_SIZE]);
+                    let byte_length = u16::from_le_bytes(bytes) as usize - 1 - U16_SIZE; // header + bytelen
+                    self.de.consume_bytes(U16_SIZE); // byte length
+                    self.de.consume_padding()?;
+
+                    // num items is unknown until first item is consumed
+                    let old_size = self.de.input.len();
+                    let v = seed.deserialize(&mut *self.de).map(Some);
+                    let item_size = old_size - self.de.input.len();
+                    let n_items = byte_length / item_size;
+                    self.remaining_items = Some(n_items - 1);
+                    return v;
+                },
+                0x04 => {
+                    self.de.consume_bytes(1); // header
+                    let mut bytes: [u8; U32_SIZE] = Default::default();
+                    bytes.copy_from_slice(&self.de.input[..U32_SIZE]);
+                    let byte_length = u32::from_le_bytes(bytes) as usize - 1 - U32_SIZE; // header + bytelen
+                    self.de.consume_bytes(U32_SIZE); // byte length
+                    self.de.consume_padding()?;
+
+                    // num items is unknown until first item is consumed
+                    let old_size = self.de.input.len();
+                    let v = seed.deserialize(&mut *self.de).map(Some);
+                    let item_size = old_size - self.de.input.len();
+                    let n_items = byte_length / item_size;
+                    self.remaining_items = Some(n_items - 1);
+                    return v;
+                },
+                0x05 => {
+                    self.de.consume_bytes(1); // header
+                    let mut bytes: [u8; U64_SIZE] = Default::default();
+                    bytes.copy_from_slice(&self.de.input[..U64_SIZE]);
+                    let byte_length = u64::from_le_bytes(bytes) as usize - 1 - U64_SIZE; // header + bytelen
+                    self.de.consume_bytes(U64_SIZE); // byte length
+                    self.de.consume_padding()?;
+
+                    // num items is unknown until first item is consumed
+                    let old_size = self.de.input.len();
+                    let v = seed.deserialize(&mut *self.de).map(Some);
+                    let item_size = old_size - self.de.input.len();
+                    let n_items = byte_length / item_size;
+                    self.remaining_items = Some(n_items - 1);
+                    return v;
+                },
+                0x06 => {
+                    self.de.consume_bytes(1 + U8_SIZE); // header + bytelength (unused)
+
+                    let mut bytes: [u8; U8_SIZE] = Default::default();
+                    bytes.copy_from_slice(&self.de.input[..U8_SIZE]);
+                    let length = u8::from_le_bytes(bytes) as usize;
+                    self.de.consume_bytes(U8_SIZE); // num items
+                    self.de.consume_padding()?;
+
+                    self.remaining_items = Some(length);
+                    self.index_size = Some(length * U8_SIZE);
+                },
+                0x07 => {
+                    self.de.consume_bytes(1 + U16_SIZE); // header + bytelength (unused)
+
+                    let mut bytes: [u8; U16_SIZE] = Default::default();
+                    bytes.copy_from_slice(&self.de.input[..U16_SIZE]);
+                    let length = u16::from_le_bytes(bytes) as usize;
+                    self.de.consume_bytes(U16_SIZE); // num items
+                    self.de.consume_padding()?;
+
+                    self.remaining_items = Some(length);
+                    self.index_size = Some(length * U16_SIZE);
+                },
+                0x08 => {
+                    self.de.consume_bytes(1 + U32_SIZE); // header + bytelength (unused)
+
+                    let mut bytes: [u8; U32_SIZE] = Default::default();
+                    bytes.copy_from_slice(&self.de.input[..U32_SIZE]);
+                    let length = u32::from_le_bytes(bytes) as usize;
+                    self.de.consume_bytes(U32_SIZE); // num items
+                    self.de.consume_padding()?;
+
+                    self.remaining_items = Some(length);
+                    self.index_size = Some(length * U32_SIZE);
+                },
+                0x09 => {
+                    self.de.consume_bytes(1 + U64_SIZE); // header + bytelength (unused)
+
+                    let mut bytes: [u8; U64_SIZE] = Default::default();
+                    bytes.copy_from_slice(&self.de.input[..U64_SIZE]);
+                    let length = u64::from_le_bytes(bytes) as usize;
+                    self.de.consume_bytes(U64_SIZE); // num items
+                    self.de.consume_padding()?;
+
+                    self.remaining_items = Some(length);
+                    self.index_size = Some(length * U64_SIZE);
+                },
+                _ => return Err(Error::Message("ExpectedArray".to_owned()))
+            }
+        }
+
+        let remaining_items = self.remaining_items.unwrap();
+        if remaining_items == 0 {
+            if let Some(index_size) = self.index_size {
+                // index is unused, but consume bytes
+                self.de.consume_bytes(index_size as usize);
+            }
+            return Ok(None);
+        }
+
+        let v = seed.deserialize(&mut *self.de).map(Some);
+        self.remaining_items = Some(remaining_items - 1);
+        v
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-    use std::collections::HashMap;
+    use serde_json;
 
     #[test]
     fn bool_false() {
@@ -429,4 +591,78 @@ mod tests {
             0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61,
             0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61, 0x61]).unwrap(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned());
     }
+
+    #[test]
+    fn array_empty() {
+        assert_eq!(from_bytes::<Vec<u32>>(&[0x01]).unwrap(), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn array_no_index() {
+        assert_eq!(from_bytes::<Vec<u8>>(&[0x02, 0x05, 0x31, 0x32, 0x33]).unwrap(), vec![1, 2, 3]);
+        assert_eq!(from_bytes::<Vec<String>>(&[0x02, 0x06, 0x43, 0x66, 0x6f, 0x6f]).unwrap(), vec!["foo".to_owned()]);
+
+
+        assert_eq!(from_bytes::<Vec<u8>>(&vec![0x03, 0x02, 0x01, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31,
+                                     0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31, 0x31]).unwrap(),
+        vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+
+    }
+
+    #[test]
+    fn array_with_index() {
+        assert_eq!(from_bytes::<Vec<u16>>(&[0x06, 0x09, 0x02, 0x31, 0x29, 0x00, 0x01, 0x03, 0x04]).unwrap(), vec![1, 256]);
+
+        assert_eq!(from_bytes::<Vec<Vec<String>>>(&[0x06, 0x1e, 0x03, 0x02, 0x06, 0x43, 0x66, 0x6f, 0x6f, 0x02, 0x0a, 0x43, 0x62, 0x61, 0x72, 0x43,
+            0x62, 0x61, 0x7a, 0x02, 0x08, 0x41, 0x61, 0x41, 0x62, 0x41, 0x63, 0x03, 0x09, 0x13]).unwrap(),
+                   vec![vec!["foo".to_owned()],
+                        vec!["bar".to_owned(), "baz".to_owned()],
+                        vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]]);
+
+
+        assert_eq!(
+            from_bytes::<Vec<String>>(&vec![0x07, 0x1f, 0x01, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0xbf, 0xdd, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x61, 0x61, 0x61, 0x64, 0x6b, 0x6c, 0x6a, 0x66, 0x68, 0x64, 0x6b, 0x6c, 0x6a, 0x68,
+0x66, 0x6b, 0x6c, 0x64, 0x6a, 0x68, 0x66, 0x6c, 0x6b, 0x6a, 0x64, 0x68, 0x73, 0x64, 0x66, 0x6a,
+0x6c, 0x73, 0x68, 0x61, 0x6c, 0x6b, 0x66, 0x6a, 0x73, 0x68, 0x64, 0x66, 0x6c, 0x6b, 0x6a, 0x73,
+0x64, 0x68, 0x66, 0x6c, 0x6b, 0x6a, 0x64, 0x68, 0x66, 0x6b, 0x61, 0x6c, 0x6a, 0x68, 0x66, 0x6c,
+0x6b, 0x61, 0x73, 0x6a, 0x64, 0x68, 0x66, 0x6c, 0x6b, 0x6a, 0x64, 0x73, 0x68, 0x66, 0x6b, 0x6c,
+0x6a, 0x73, 0x64, 0x68, 0x66, 0x6c, 0x6b, 0x6a, 0x64, 0x68, 0x6c, 0x66, 0x6b, 0x6a, 0x68, 0x64,
+0x6c, 0x6b, 0x66, 0x6a, 0x68, 0x64, 0x73, 0x6c, 0x6b, 0x66, 0x6a, 0x64, 0x68, 0x61, 0x73, 0x6c,
+0x66, 0x6b, 0x6a, 0x61, 0x73, 0x68, 0x64, 0x6c, 0x66, 0x6b, 0x6a, 0x64, 0x73, 0x68, 0x61, 0x6c,
+0x66, 0x6b, 0x6a, 0x64, 0x73, 0x68, 0x66, 0x6c, 0x6b, 0x64, 0x6a, 0x73, 0x68, 0x66, 0x6c, 0x6b,
+0x73, 0x6a, 0x68, 0x66, 0x6c, 0x73, 0x64, 0x6b, 0x6a, 0x66, 0x68, 0x64, 0x73, 0x6b, 0x6c, 0x6a,
+0x66, 0x68, 0x73, 0x61, 0x6c, 0x6b, 0x6a, 0x66, 0x68, 0x64, 0x6c, 0x6b, 0x6a, 0x66, 0x68, 0x61,
+0x73, 0x64, 0x6b, 0x6c, 0x6a, 0x68, 0x66, 0x6c, 0x6b, 0x64, 0x73, 0x61, 0x6a, 0x68, 0x66, 0x6c,
+0x6b, 0x6a, 0x64, 0x73, 0x68, 0x66, 0x6b, 0x6c, 0x64, 0x6a, 0x68, 0x66, 0x6c, 0x6b, 0x6a, 0x64,
+0x73, 0x68, 0x66, 0x6c, 0x6b, 0x6a, 0x61, 0x64, 0x68, 0x66, 0x6c, 0x6b, 0x6a, 0x64, 0x68, 0x41,
+0x61, 0x41, 0x61, 0x41, 0x61, 0x42, 0x62, 0x62, 0x43, 0x63, 0x63, 0x63, 0x44, 0x64, 0x64, 0x64,
+0x64, 0x44, 0x65, 0x65, 0x65, 0x65, 0x46, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x09, 0x00, 0xef,
+0x00, 0xf1, 0x00, 0xf3, 0x00, 0xf5, 0x00, 0xf8, 0x00, 0xfc, 0x00, 0x01, 0x01, 0x06, 0x01]).unwrap(),
+            vec!["aaadkljfhdkljhfkldjhflkjdhsdfjlshalkfjshdflkjsdhflkjdhfkaljhflkasjdhflkjdshfkljsdhflkjdhlfkjhdlkfjhdslkfjdhaslfkjashdlfkjdshalfkjdshflkdjshflksjhflsdkjfhdskljfhsalkjfhdlkjfhasdkljhflkdsajhflkjdshfkldjhflkjdshflkjadhflkjdh".to_owned(), "a".to_owned(), "a".to_owned(), "a".to_owned(), "bb".to_owned(), "ccc".to_owned(), "dddd".to_owned(), "eeee".to_owned(), "ffffff".to_owned()]);
+    }
+
 }
