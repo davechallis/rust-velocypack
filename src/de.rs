@@ -290,7 +290,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
-        unimplemented!()
+        visitor.visit_string(self.parse_string()?)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value> where
@@ -354,9 +354,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_map(MapDeserializer::new(&mut self))
     }
 
-    fn deserialize_struct<V>(self, name: &'static str, fields: &'static [&'static str], visitor: V) -> Result<V::Value> where
+    fn deserialize_struct<V>(mut self, _name: &'static str, _fields: &'static [&'static str], visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
-        unimplemented!()
+        visitor.visit_map(MapDeserializer::new(&mut self))
     }
 
     fn deserialize_enum<V>(self, name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value> where
@@ -366,7 +366,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
-        unimplemented!()
+        self.deserialize_string(visitor)
     }
 
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value> where
@@ -779,5 +779,17 @@ mod tests {
         m.insert("a".to_owned(), 1);
         m.insert("b".to_owned(), 2);
         assert_eq!(from_bytes::<HashMap<String, u8>>(&[0x0b, 0x0b, 0x02, 0x41, 0x61, 0x31, 0x41, 0x62, 0x32, 0x03, 0x06]).unwrap(), m);
+    }
+
+    #[test]
+    fn object_to_struct() {
+        #[derive(Debug, Deserialize, PartialEq, Eq)]
+        struct Person {
+            name: String,
+            age: u32,
+        }
+
+        assert_eq!(from_bytes::<Person>(&[0x0b, 0x14, 0x02, 0x44, 0x6e, 0x61, 0x6d, 0x65, 0x43, 0x42, 0x6f, 0x62, 0x43, 0x61, 0x67, 0x65,
+            0x28, 0x17, 0x0c, 0x03]).unwrap(), Person { name: "Bob".to_owned(), age: 23 });
     }
 }
