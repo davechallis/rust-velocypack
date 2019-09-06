@@ -52,7 +52,7 @@ Serialize  Deserialize  Value type
 ✓          ✓            0x30-0x39 : small integers
 ✓          ✓            0x3a-0x3f : small negative integers
 ✓          ✓            0x40-0xbe : UTF-8-string
-✓                       0xbf : long UTF-8-string
+✓          ✓            0xbf : long UTF-8-string
 ✓                       0xc0-0xc7 : binary blob
 ✗          ✗            0xc8-0xcf : positive long packed BCD-encoded float
 ✗          ✗            0xd0-0xd7 : negative long packed BCD-encoded float
