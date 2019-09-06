@@ -1,7 +1,6 @@
 # rust-velocypack
 
 [![Build Status](https://travis-ci.com/davechallis/rust-velocypack.svg?branch=master)](https://travis-ci.com/davechallis/rust-velocypack)
-https://docs.rs/velocypack/0.1.0/velocypack/
 [![Docs status](https://docs.rs/velocypack/badge.svg)](https://docs.rs/velocypack)
 
 Rust implementation of the [VelocyPack](https://github.com/arangodb/velocypack)
