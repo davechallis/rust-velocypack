@@ -7,6 +7,8 @@ use serde::de::{
 use crate::error::{Error, Result};
 use std::convert::TryFrom;
 use crate::{U8_SIZE, U16_SIZE, U32_SIZE, U64_SIZE};
+use std::io::BufRead;
+use std::slice::SliceIndex;
 
 pub struct Deserializer<'de> {
     input: &'de [u8],
@@ -17,9 +19,16 @@ impl<'de> Deserializer<'de> {
         Self { input }
     }
 
-    fn peek_byte(&mut self) -> Result<u8> {
+    fn peek_byte(&self) -> Result<u8> {
         match self.input.get(0) {
             Some(b) => Ok(*b),
+            None => Err(Error::Message("eof".to_owned())),
+        }
+    }
+
+    fn peek_bytes<I: SliceIndex<[u8]>>(&self, index: I) -> Result<&<I as SliceIndex<[u8]>>::Output> {
+        match self.input.get(index) {
+            Some(b) => Ok(b),
             None => Err(Error::Message("eof".to_owned())),
         }
     }
@@ -39,6 +48,34 @@ impl<'de> Deserializer<'de> {
 
     fn consume_bytes(&mut self, n: usize) {
         self.input = &self.input[n..]
+    }
+
+    fn consume_u8(&mut self) -> Result<u8> {
+        let mut bytes: [u8; U8_SIZE] = Default::default();
+        bytes.copy_from_slice(self.peek_bytes(..U8_SIZE)?);
+        self.consume_bytes(U8_SIZE);
+        Ok(u8::from_le_bytes(bytes))
+    }
+
+    fn consume_u16(&mut self) -> Result<u16> {
+        let mut bytes: [u8; U16_SIZE] = Default::default();
+        bytes.copy_from_slice(self.peek_bytes(..U16_SIZE)?);
+        self.consume_bytes(U16_SIZE);
+        Ok(u16::from_le_bytes(bytes))
+    }
+
+    fn consume_u32(&mut self) -> Result<u32> {
+        let mut bytes: [u8; U32_SIZE] = Default::default();
+        bytes.copy_from_slice(self.peek_bytes(..U32_SIZE)?);
+        self.consume_bytes(U32_SIZE);
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn consume_u64(&mut self) -> Result<u64> {
+        let mut bytes: [u8; U64_SIZE] = Default::default();
+        bytes.copy_from_slice(self.peek_bytes(..U64_SIZE)?);
+        self.consume_bytes(U64_SIZE);
+        Ok(u64::from_le_bytes(bytes))
     }
 
     fn parse_bool(&mut self) -> Result<bool> {
@@ -179,7 +216,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         match self.peek_byte()? {
-            x if x >= 0x01 || x <= 0x09 => self.deserialize_seq(visitor),
+            x if x >= 0x01 && x <= 0x09 => self.deserialize_seq(visitor),
+            x if x >= 0x0a && x <= 0x12 => self.deserialize_map(visitor),
             0x18 => self.deserialize_unit(visitor),
             0x19 | 0x1a => self.deserialize_bool(visitor),
             0x1b => self.deserialize_f64(visitor),
@@ -311,9 +349,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         unimplemented!()
     }
 
-    fn deserialize_map<V>(self, visitor: V) -> Result<V::Value> where
+    fn deserialize_map<V>(mut self, visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
-        unimplemented!()
+        visitor.visit_map(MapDeserializer::new(&mut self))
     }
 
     fn deserialize_struct<V>(self, name: &'static str, fields: &'static [&'static str], visitor: V) -> Result<V::Value> where
@@ -338,6 +376,82 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
 
     fn is_human_readable(&self) -> bool {
         false
+    }
+}
+
+struct MapDeserializer<'a, 'de: 'a> {
+    de: &'a mut Deserializer<'de>,
+    index_size: Option<usize>,
+    remaining_items: Option<usize>,
+}
+
+impl<'a, 'de> MapDeserializer<'a, 'de> {
+    fn new(de: &'a mut Deserializer<'de>) -> Self {
+        Self { de, index_size: None, remaining_items: None }
+    }
+}
+
+impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
+    type Error = Error;
+
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>> where
+        K: DeserializeSeed<'de> {
+        if self.remaining_items.is_none() {
+            match self.de.peek_byte()? {
+                0x0a => {
+                    self.de.consume_bytes(1);
+                    return Ok(None);
+                },
+                0x0b | 0x0f => {
+                    self.de.consume_bytes(1); // header
+                    let byte_len = self.de.consume_u8()? as usize - 1 - 2*U8_SIZE; // sub header, bytelen, nitems
+                    let num_items = self.de.consume_u8()? as usize;
+                    self.remaining_items = Some(num_items);
+                    self.index_size = Some(U8_SIZE * num_items);
+                },
+                0x0c | 0x10 => {
+                    self.de.consume_bytes(1); // header
+                    let byte_len = self.de.consume_u16()? as usize - 1 - 2*U16_SIZE; // sub header, bytelen, nitems
+                    let num_items = self.de.consume_u16()? as usize;
+                    self.remaining_items = Some(num_items);
+                    self.index_size = Some(U16_SIZE * num_items);
+                },
+                0x0d | 0x11 => {
+                    self.de.consume_bytes(1); // header
+                    let byte_len = self.de.consume_u32()? as usize - 1 - 2*U32_SIZE; // sub header, bytelen, nitems
+                    let num_items = self.de.consume_u32()? as usize;
+                    self.remaining_items = Some(num_items);
+                    self.index_size = Some(U32_SIZE * num_items);
+                },
+                0x0e | 0x12 => {
+                    // FIXME: num items is at end
+                    self.de.consume_bytes(1); // header
+                    let byte_len = self.de.consume_u64()? as usize - 1 - 2*U64_SIZE; // sub header, bytelen, nitems
+                    let num_items = self.de.consume_u64()? as usize;
+                    self.remaining_items = Some(num_items);
+                    self.index_size = Some(U64_SIZE * num_items);
+                },
+                _ => return Err(Error::Message("ExpectedObject".to_owned()))
+            }
+        }
+
+        let remaining_items = self.remaining_items.unwrap();
+        if remaining_items == 0 {
+            if let Some(index_size) = self.index_size {
+                // index is unused, but consume bytes
+                self.de.consume_bytes(index_size as usize);
+            }
+            return Ok(None);
+        }
+
+        let v = seed.deserialize(&mut *self.de).map(Some);
+        self.remaining_items = Some(remaining_items - 1);
+        v
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value> where
+        V: DeserializeSeed<'de> {
+        seed.deserialize(&mut *self.de)
     }
 }
 
@@ -366,10 +480,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                 },
                 0x02 => {
                     self.de.consume_bytes(1); // header
-                    let mut bytes: [u8; U8_SIZE] = Default::default();
-                    bytes.copy_from_slice(&self.de.input[..U8_SIZE]);
-                    let byte_length = u8::from_le_bytes(bytes) as usize - 1 - U8_SIZE; // sub header + bytelen
-                    self.de.consume_bytes(U8_SIZE);
+                    let byte_length = self.de.consume_u8()? as usize - 1 - U8_SIZE; // sub header + bytelen
                     self.de.consume_padding()?;
 
                     // num items is unknown until first item is consumed
@@ -382,10 +493,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                 },
                 0x03 => {
                     self.de.consume_bytes(1); // header
-                    let mut bytes: [u8; U16_SIZE] = Default::default();
-                    bytes.copy_from_slice(&self.de.input[..U16_SIZE]);
-                    let byte_length = u16::from_le_bytes(bytes) as usize - 1 - U16_SIZE; // header + bytelen
-                    self.de.consume_bytes(U16_SIZE); // byte length
+                    let byte_length = self.de.consume_u16()? as usize - 1 - U16_SIZE; // header + bytelen
                     self.de.consume_padding()?;
 
                     // num items is unknown until first item is consumed
@@ -398,10 +506,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                 },
                 0x04 => {
                     self.de.consume_bytes(1); // header
-                    let mut bytes: [u8; U32_SIZE] = Default::default();
-                    bytes.copy_from_slice(&self.de.input[..U32_SIZE]);
-                    let byte_length = u32::from_le_bytes(bytes) as usize - 1 - U32_SIZE; // header + bytelen
-                    self.de.consume_bytes(U32_SIZE); // byte length
+                    let byte_length = self.de.consume_u32()? as usize - 1 - U32_SIZE; // header + bytelen
                     self.de.consume_padding()?;
 
                     // num items is unknown until first item is consumed
@@ -414,10 +519,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                 },
                 0x05 => {
                     self.de.consume_bytes(1); // header
-                    let mut bytes: [u8; U64_SIZE] = Default::default();
-                    bytes.copy_from_slice(&self.de.input[..U64_SIZE]);
-                    let byte_length = u64::from_le_bytes(bytes) as usize - 1 - U64_SIZE; // header + bytelen
-                    self.de.consume_bytes(U64_SIZE); // byte length
+                    let byte_length = self.de.consume_u64()? as usize - 1 - U64_SIZE; // header + bytelen
                     self.de.consume_padding()?;
 
                     // num items is unknown until first item is consumed
@@ -499,6 +601,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
 mod tests {
     use super::*;
     use serde_json;
+    use std::collections::HashMap;
 
     #[test]
     fn bool_false() {
@@ -665,4 +768,16 @@ mod tests {
             vec!["aaadkljfhdkljhfkldjhflkjdhsdfjlshalkfjshdflkjsdhflkjdhfkaljhflkasjdhflkjdshfkljsdhflkjdhlfkjhdlkfjhdslkfjdhaslfkjashdlfkjdshalfkjdshflkdjshflksjhflsdkjfhdskljfhsalkjfhdlkjfhasdkljhflkdsajhflkjdshfkldjhflkjdshflkjadhflkjdh".to_owned(), "a".to_owned(), "a".to_owned(), "a".to_owned(), "bb".to_owned(), "ccc".to_owned(), "dddd".to_owned(), "eeee".to_owned(), "ffffff".to_owned()]);
     }
 
+    #[test]
+    fn object_empty() {
+        assert_eq!(from_bytes::<HashMap<String, u8>>(&[0x0a]).unwrap(), HashMap::new());
+    }
+
+    #[test]
+    fn object_1byte() {
+        let mut m = HashMap::new();
+        m.insert("a".to_owned(), 1);
+        m.insert("b".to_owned(), 2);
+        assert_eq!(from_bytes::<HashMap<String, u8>>(&[0x0b, 0x0b, 0x02, 0x41, 0x61, 0x31, 0x41, 0x62, 0x32, 0x03, 0x06]).unwrap(), m);
+    }
 }

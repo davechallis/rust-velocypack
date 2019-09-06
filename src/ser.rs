@@ -895,13 +895,13 @@ mod tests {
     }
 
     #[test]
-    fn empty_array() {
+    fn array_empty() {
         let a: [u32; 0] = [];
         assert_eq!(to_bytes(&a).unwrap(), &[0x01]);
     }
 
     #[test]
-    fn no_index_array() {
+    fn array_no_index() {
         let a = [1, 2, 3];
         assert_eq!(to_bytes(&a).unwrap(), &[0x02, 0x05, 0x31, 0x32, 0x33]);
 
@@ -937,7 +937,7 @@ mod tests {
     }
 
     #[test]
-    fn index_array() {
+    fn array_with_index() {
         let a = &[1, 256];
         assert_eq!(to_bytes(&a).unwrap(), &[0x06, 0x09, 0x02, 0x31, 0x29, 0x00, 0x01, 0x03, 0x04]);
 
@@ -946,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_object() {
+    fn object_empty() {
         let a: HashMap<i32, String> = HashMap::new();
         assert_eq!(to_bytes(&a).unwrap(), &[0x0a]);
 
