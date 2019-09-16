@@ -775,6 +775,45 @@ mod tests {
 
     #[test]
     fn test_i32() {
+        // small negative integers
+        assert_eq!(to_bytes(&-6i32).unwrap(), &[0x3a]);
+        assert_eq!(to_bytes(&-5i32).unwrap(), &[0x3b]);
+        assert_eq!(to_bytes(&-4i32).unwrap(), &[0x3c]);
+        assert_eq!(to_bytes(&-3i32).unwrap(), &[0x3d]);
+        assert_eq!(to_bytes(&-2i32).unwrap(), &[0x3e]);
+        assert_eq!(to_bytes(&-1i32).unwrap(), &[0x3f]);
+
+        // small integers
+        assert_eq!(to_bytes(&0i32).unwrap(), &[0x30]);
+        assert_eq!(to_bytes(&1i32).unwrap(), &[0x31]);
+        assert_eq!(to_bytes(&2i32).unwrap(), &[0x32]);
+        assert_eq!(to_bytes(&3i32).unwrap(), &[0x33]);
+        assert_eq!(to_bytes(&4i32).unwrap(), &[0x34]);
+        assert_eq!(to_bytes(&5i32).unwrap(), &[0x35]);
+        assert_eq!(to_bytes(&6i32).unwrap(), &[0x36]);
+        assert_eq!(to_bytes(&7i32).unwrap(), &[0x37]);
+        assert_eq!(to_bytes(&8i32).unwrap(), &[0x38]);
+        assert_eq!(to_bytes(&9i32).unwrap(), &[0x39]);
+
+        // signed int, little endian, 1 byte
+        assert_eq!(to_bytes(&(std::i8::MIN as i32)).unwrap(), &[0x20, 0x80]);
+        assert_eq!(to_bytes(&(std::i8::MAX as i32)).unwrap(), &[0x28, 0x7f]);
+        assert_eq!(to_bytes(&-7i32).unwrap(), &[0x20, 0xf9]);
+        assert_eq!(to_bytes(&10i32).unwrap(), &[0x28, 0x0a]);
+
+        // signed int, little endian, 2 bytes
+        assert_eq!(to_bytes(&std::i16::MIN).unwrap(), &[0x21, 0x00, 0x80]);
+        assert_eq!(to_bytes(&std::i16::MAX).unwrap(), &[0x29, 0xff, 0x7f]);
+        assert_eq!(to_bytes(&-12345i32).unwrap(), &[0x21, 0xc7, 0xcf]);
+        assert_eq!(to_bytes(&12345i32).unwrap(), &[0x29, 0x39, 0x30]);
+
+        // signed int, little endian, 3.
+        assert_eq!(to_bytes(&8388607).unwrap(), &[0x2a, 0xff, 0xff, 0x7f]);
+        assert_eq!(to_bytes(&-8388608).unwrap(), &[0x22, 0x00, 0x00, 0x80]);
+
+        // signed int, little endian, 4 bytes
+        assert_eq!(to_bytes(&std::i32::MIN).unwrap(), &[0x23, 0x00, 0x00, 0x00, 0x80]);
+        assert_eq!(to_bytes(&std::i32::MAX).unwrap(), &[0x2b, 0xff, 0xff, 0xff, 0x7f]);
     }
 
     #[test]
