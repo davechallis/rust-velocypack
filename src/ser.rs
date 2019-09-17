@@ -27,11 +27,11 @@ impl Serializer {
         match v {
             i if i > -7 => self.output.push((0x40 + i) as u8),
             i => {
-                let b = i.to_le_bytes();
+                let b = dbg!(i.to_le_bytes());
                 println!("{}: {:x?}", v, b);
-                for bit in (0..7).rev() {
+                for bit in (0..8).rev() {
+                    println!("bit: {} = {:x?}", bit, b[bit]);
                     if b[bit] != 0xff {
-                        println!("bit: {}", bit);
                         if bit == 0 && b[bit] < 0x80 {
                             self.output.push((0x20 + bit + 1) as u8);
                             self.output.extend_from_slice(&b[..bit + 1]);
@@ -52,7 +52,7 @@ impl Serializer {
             i if i < 10 => self.output.push(0x30 + v as u8),
             i => {
                 let b = i.to_le_bytes();
-                for bit in (0..7).rev() {
+                for bit in (0..8).rev() {
                     if b[bit] != 0x00 {
                         self.output.push(0x28 + bit as u8);
                         self.output.extend_from_slice(&b[..bit + 1]);
@@ -699,6 +699,15 @@ mod tests {
     use serde_json::json;
     use std::collections::HashMap;
 
+    const I24_MAX: i32 = 8388607;
+    const I24_MIN: i32 = -8388608;
+    const I40_MAX: i64 = 549755813887;
+    const I40_MIN: i64 = -549755813888;
+    const I48_MAX: i64 = 140737488355327;
+    const I48_MIN: i64 = -140737488355328;
+    const I56_MAX: i64 = 36028797018963967;
+    const I56_MIN: i64 = -36028797018963968;
+
     #[test]
     fn bool_false() {
         assert_eq!(to_bytes(&false).unwrap(), &[0x19]);
@@ -807,9 +816,9 @@ mod tests {
         assert_eq!(to_bytes(&-12345i32).unwrap(), &[0x21, 0xc7, 0xcf]);
         assert_eq!(to_bytes(&12345i32).unwrap(), &[0x29, 0x39, 0x30]);
 
-        // signed int, little endian, 3.
-        assert_eq!(to_bytes(&8388607).unwrap(), &[0x2a, 0xff, 0xff, 0x7f]);
-        assert_eq!(to_bytes(&-8388608).unwrap(), &[0x22, 0x00, 0x00, 0x80]);
+        // signed int, little endian, 3 bytes
+        assert_eq!(to_bytes(&I24_MAX).unwrap(), &[0x2a, 0xff, 0xff, 0x7f]);
+        assert_eq!(to_bytes(&I24_MIN).unwrap(), &[0x22, 0x00, 0x00, 0x80]);
 
         // signed int, little endian, 4 bytes
         assert_eq!(to_bytes(&std::i32::MIN).unwrap(), &[0x23, 0x00, 0x00, 0x00, 0x80]);
@@ -818,6 +827,61 @@ mod tests {
 
     #[test]
     fn test_i64() {
+        // small negative integers
+        assert_eq!(to_bytes(&-6i64).unwrap(), &[0x3a]);
+        assert_eq!(to_bytes(&-5i64).unwrap(), &[0x3b]);
+        assert_eq!(to_bytes(&-4i64).unwrap(), &[0x3c]);
+        assert_eq!(to_bytes(&-3i64).unwrap(), &[0x3d]);
+        assert_eq!(to_bytes(&-2i64).unwrap(), &[0x3e]);
+        assert_eq!(to_bytes(&-1i64).unwrap(), &[0x3f]);
+
+        // small integers
+        assert_eq!(to_bytes(&0i64).unwrap(), &[0x30]);
+        assert_eq!(to_bytes(&1i64).unwrap(), &[0x31]);
+        assert_eq!(to_bytes(&2i64).unwrap(), &[0x32]);
+        assert_eq!(to_bytes(&3i64).unwrap(), &[0x33]);
+        assert_eq!(to_bytes(&4i64).unwrap(), &[0x34]);
+        assert_eq!(to_bytes(&5i64).unwrap(), &[0x35]);
+        assert_eq!(to_bytes(&6i64).unwrap(), &[0x36]);
+        assert_eq!(to_bytes(&7i64).unwrap(), &[0x37]);
+        assert_eq!(to_bytes(&8i64).unwrap(), &[0x38]);
+        assert_eq!(to_bytes(&9i64).unwrap(), &[0x39]);
+
+        // signed int, little endian, 1 byte
+        assert_eq!(to_bytes(&(std::i8::MIN as i64)).unwrap(), &[0x20, 0x80]);
+        assert_eq!(to_bytes(&(std::i8::MAX as i64)).unwrap(), &[0x28, 0x7f]);
+        assert_eq!(to_bytes(&-7i64).unwrap(), &[0x20, 0xf9]);
+        assert_eq!(to_bytes(&10i64).unwrap(), &[0x28, 0x0a]);
+
+        // signed int, little endian, 2 bytes
+        assert_eq!(to_bytes(&std::i16::MIN).unwrap(), &[0x21, 0x00, 0x80]);
+        assert_eq!(to_bytes(&std::i16::MAX).unwrap(), &[0x29, 0xff, 0x7f]);
+        assert_eq!(to_bytes(&-12345i64).unwrap(), &[0x21, 0xc7, 0xcf]);
+        assert_eq!(to_bytes(&12345i64).unwrap(), &[0x29, 0x39, 0x30]);
+
+        // signed int, little endian, 3 bytes
+        assert_eq!(to_bytes(&I24_MIN).unwrap(), &[0x22, 0x00, 0x00, 0x80]);
+        assert_eq!(to_bytes(&I24_MAX).unwrap(), &[0x2a, 0xff, 0xff, 0x7f]);
+
+        // signed int, little endian, 4 bytes
+        assert_eq!(to_bytes(&std::i32::MIN).unwrap(), &[0x23, 0x00, 0x00, 0x00, 0x80]);
+        assert_eq!(to_bytes(&std::i32::MAX).unwrap(), &[0x2b, 0xff, 0xff, 0xff, 0x7f]);
+
+        // signed int, little endian, 5 bytes
+        assert_eq!(to_bytes(&I40_MIN).unwrap(), &[0x24, 0x00, 0x00, 0x00, 0x00, 0x80]);
+        assert_eq!(to_bytes(&I40_MAX).unwrap(), &[0x2c, 0xff, 0xff, 0xff, 0xff, 0x7f]);
+
+        // signed int, little endian, 6 bytes
+        assert_eq!(to_bytes(&I48_MIN).unwrap(), &[0x25, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80]);
+        assert_eq!(to_bytes(&I48_MAX).unwrap(), &[0x2d, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f]);
+
+        // signed int, little endian, 7 bytes
+        assert_eq!(to_bytes(&I56_MIN).unwrap(), &[0x26, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80]);
+        assert_eq!(to_bytes(&I56_MAX).unwrap(), &[0x2e, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f]);
+
+        // signed int, little endian, 8 bytes
+        assert_eq!(to_bytes(&std::i64::MIN).unwrap(), &[0x27, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80]);
+        assert_eq!(to_bytes(&std::i64::MAX).unwrap(), &[0x2f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f]);
     }
 
     #[test]
