@@ -40,7 +40,7 @@ Serialize  Deserialize  Value type
 ✗          ✓            0x11 : object with 4-byte index table offsets, not sorted by attribute name, 4-byte bytelen and # subvals
 ✗          ✓            0x12 : object with 8-byte index table offsets, not sorted by attribute name, 8-byte bytelen and # subvals
 ✗          ✓            0x13 : compact array, no index table
-✗                       0x14 : compact object, no index table
+✗          ✓            0x14 : compact object, no index table
 ✗          ✗            0x15-0x16 : reserved
 ✗          ✗            0x17 : illegal
 ✓          ✓            0x18 : null

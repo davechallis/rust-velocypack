@@ -1,6 +1,6 @@
 [package]
 name = "velocypack"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Dave Challis <dave@suicas.net>"]
 description = "Implementation of ArangoDB's VelocyPack protocol."
 repository = "https://github.com/davechallis/rust-velocypack"

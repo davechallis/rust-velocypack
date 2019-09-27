@@ -222,8 +222,8 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         match self.peek_byte()? {
-            x if x >= 0x01 && x <= 0x09 => self.deserialize_seq(visitor),
-            x if x >= 0x0a && x <= 0x12 => self.deserialize_map(visitor),
+            x if (x >= 0x01 && x <= 0x09) || x == 0x13 => self.deserialize_seq(visitor),
+            x if (x >= 0x0a && x <= 0x12) || x == 0x14 => self.deserialize_map(visitor),
             0x18 => self.deserialize_unit(visitor),
             0x19 | 0x1a => self.deserialize_bool(visitor),
             0x1b => self.deserialize_f64(visitor),
@@ -436,6 +436,59 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                     let num_items = self.de.consume_u64()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U64_SIZE * num_items);
+                },
+                0x14 => {
+                    // compact object
+                    self.de.consume_header();
+
+                    let mut buf: [u8; 8] = [0; 8];
+                    let mut length_bits = buf.as_mut_bitslice::<LittleEndian>();
+
+                    let mut header_size = 1; // header, increment with bytelen bytes
+                    let mut idx = 0;
+                    loop {
+                        let b = self.de.next_byte()?;
+                        for n in 0..7 {
+                            if (b & (1 << n)) != 0 {
+                                *length_bits.at(idx) = true;
+                            }
+                            idx += 1;
+                        }
+
+                        header_size += 1;
+
+                        if (b & (1 << 7)) == 0 { // check high bit set
+                            break;
+                        }
+                    }
+
+                    let bytelength = u64::from_le_bytes(buf) as usize;
+
+                    let remaining_bytes = bytelength - header_size;
+
+                    let mut buf: [u8; 8] = [0; 8];
+                    let mut length_bits = buf.as_mut_bitslice::<LittleEndian>();
+                    let mut index_size = 0;
+
+                    let mut idx = 0;
+                    for b in self.de.input[..remaining_bytes].iter().rev() {
+                        for n in 0..7 {
+                            if (b & (1 << n)) != 0 {
+                                *length_bits.at(idx) = true;
+                            }
+                            idx += 1;
+                        }
+
+                        index_size += 1;
+
+                        if (b & (1 << 7)) == 0 { // check high bit set
+                            break;
+                        }
+                    }
+
+                    let num_items = u64::from_le_bytes(buf) as usize;
+                    self.remaining_items = Some(num_items);
+                    self.index_size = Some(index_size);
                 },
                 _ => return Err(Error::Message("ExpectedObject".to_owned()))
             }
@@ -913,6 +966,8 @@ mod tests {
 
     #[test]
     fn object_compact() {
-
+        let mut expected = HashMap::new();
+        expected.insert("a".to_owned(), 1);
+        assert_eq!(from_bytes::<HashMap<String, u8>>(&[0x14, 0x06, 0x41, 0x61, 0x31, 0x01]).unwrap(), expected);
     }
 }
