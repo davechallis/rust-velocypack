@@ -699,6 +699,11 @@ mod tests {
     use serde_json::json;
     use std::collections::HashMap;
 
+    const U24_MAX: i32 = 16777215;
+    const U40_MAX: u64 = 1099511627775;
+    const U48_MAX: u64 = 281474976710655;
+    const U56_MAX: u64 = 72057594037927935;
+
     const I24_MAX: i32 = 8388607;
     const I24_MIN: i32 = -8388608;
     const I40_MAX: i64 = 549755813887;
@@ -905,14 +910,95 @@ mod tests {
 
     #[test]
     fn test_u16() {
+        // small integers
+        assert_eq!(to_bytes(&0u16).unwrap(), &[0x30]);
+        assert_eq!(to_bytes(&1u16).unwrap(), &[0x31]);
+        assert_eq!(to_bytes(&2u16).unwrap(), &[0x32]);
+        assert_eq!(to_bytes(&3u16).unwrap(), &[0x33]);
+        assert_eq!(to_bytes(&4u16).unwrap(), &[0x34]);
+        assert_eq!(to_bytes(&5u16).unwrap(), &[0x35]);
+        assert_eq!(to_bytes(&6u16).unwrap(), &[0x36]);
+        assert_eq!(to_bytes(&7u16).unwrap(), &[0x37]);
+        assert_eq!(to_bytes(&8u16).unwrap(), &[0x38]);
+        assert_eq!(to_bytes(&9u16).unwrap(), &[0x39]);
+
+        // uint, little endian, 1 byte
+        assert_eq!(to_bytes(&(std::u8::MAX as u16)).unwrap(), &[0x28, 0xff]);
+        assert_eq!(to_bytes(&10u16).unwrap(), &[0x28, 0x0a]);
+
+        // uint, little endian, 2 bytes
+        assert_eq!(to_bytes(&std::u16::MAX).unwrap(), &[0x29, 0xff, 0xff]);
+        assert_eq!(to_bytes(&12345u16).unwrap(), &[0x29, 0x39, 0x30]);
     }
 
     #[test]
     fn test_u32() {
+        // small integers
+        assert_eq!(to_bytes(&0u32).unwrap(), &[0x30]);
+        assert_eq!(to_bytes(&1u32).unwrap(), &[0x31]);
+        assert_eq!(to_bytes(&2u32).unwrap(), &[0x32]);
+        assert_eq!(to_bytes(&3u32).unwrap(), &[0x33]);
+        assert_eq!(to_bytes(&4u32).unwrap(), &[0x34]);
+        assert_eq!(to_bytes(&5u32).unwrap(), &[0x35]);
+        assert_eq!(to_bytes(&6u32).unwrap(), &[0x36]);
+        assert_eq!(to_bytes(&7u32).unwrap(), &[0x37]);
+        assert_eq!(to_bytes(&8u32).unwrap(), &[0x38]);
+        assert_eq!(to_bytes(&9u32).unwrap(), &[0x39]);
+
+        // uint, little endian, 1 byte
+        assert_eq!(to_bytes(&(std::u8::MAX as u32)).unwrap(), &[0x28, 0xff]);
+        assert_eq!(to_bytes(&10u32).unwrap(), &[0x28, 0x0a]);
+
+        // uint, little endian, 2 bytes
+        assert_eq!(to_bytes(&std::u16::MAX).unwrap(), &[0x29, 0xff, 0xff]);
+        assert_eq!(to_bytes(&12345u32).unwrap(), &[0x29, 0x39, 0x30]);
+
+        // uint, little endian, 3 bytes
+        assert_eq!(to_bytes(&I24_MAX).unwrap(), &[0x2a, 0xff, 0xff, 0x7f]);
+
+        // uint, little endian, 4 bytes
+        assert_eq!(to_bytes(&std::u32::MAX).unwrap(), &[0x2b, 0xff, 0xff, 0xff, 0xff]);
     }
 
     #[test]
     fn test_u64() {
+        // small integers
+        assert_eq!(to_bytes(&0u64).unwrap(), &[0x30]);
+        assert_eq!(to_bytes(&1u64).unwrap(), &[0x31]);
+        assert_eq!(to_bytes(&2u64).unwrap(), &[0x32]);
+        assert_eq!(to_bytes(&3u64).unwrap(), &[0x33]);
+        assert_eq!(to_bytes(&4u64).unwrap(), &[0x34]);
+        assert_eq!(to_bytes(&5u64).unwrap(), &[0x35]);
+        assert_eq!(to_bytes(&6u64).unwrap(), &[0x36]);
+        assert_eq!(to_bytes(&7u64).unwrap(), &[0x37]);
+        assert_eq!(to_bytes(&8u64).unwrap(), &[0x38]);
+        assert_eq!(to_bytes(&9u64).unwrap(), &[0x39]);
+
+        // uint, little endian, 1 byte
+        assert_eq!(to_bytes(&(std::u8::MAX as u64)).unwrap(), &[0x28, 0xff]);
+        assert_eq!(to_bytes(&10u64).unwrap(), &[0x28, 0x0a]);
+
+        // uint, little endian, 2 bytes
+        assert_eq!(to_bytes(&std::u16::MAX).unwrap(), &[0x29, 0xff, 0xff]);
+        assert_eq!(to_bytes(&12345u64).unwrap(), &[0x29, 0x39, 0x30]);
+
+        // uint, little endian, 3 bytes
+        assert_eq!(to_bytes(&U24_MAX).unwrap(), &[0x2a, 0xff, 0xff, 0xff]);
+
+        // uint, little endian, 4 bytes
+        assert_eq!(to_bytes(&std::u32::MAX).unwrap(), &[0x2b, 0xff, 0xff, 0xff, 0xff]);
+
+        // uint, little endian, 5 bytes
+        assert_eq!(to_bytes(&U40_MAX).unwrap(), &[0x2c, 0xff, 0xff, 0xff, 0xff, 0xff]);
+
+        // uint, little endian, 6 bytes
+        assert_eq!(to_bytes(&U48_MAX).unwrap(), &[0x2d, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+
+        // uint, little endian, 7 bytes
+        assert_eq!(to_bytes(&U56_MAX).unwrap(), &[0x2e, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+
+        // uint, little endian, 8 bytes
+        assert_eq!(to_bytes(&std::u64::MAX).unwrap(), &[0x2f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
     }
 
     #[test]
