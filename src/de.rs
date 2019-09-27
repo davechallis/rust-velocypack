@@ -49,7 +49,11 @@ impl<'de> Deserializer<'de> {
     }
 
     fn consume_bytes(&mut self, n: usize) {
-        self.input = &self.input[n..]
+        self.input = &self.input[n..];
+    }
+
+    fn consume_header(&mut self) {
+        self.consume_bytes(1);
     }
 
     fn consume_u8(&mut self) -> Result<u8> {
@@ -179,7 +183,7 @@ impl<'de> Deserializer<'de> {
                 }
             },
             b if b >= 0x40 && b <= 0xbe => {
-                self.consume_bytes(1); // header
+                self.consume_header();
                 let length = (b - 0x40) as usize;
                 if length == 0 {
                     return Ok(String::new())
@@ -401,25 +405,25 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
         if self.remaining_items.is_none() {
             match self.de.peek_byte()? {
                 0x0a => {
-                    self.de.consume_bytes(1);
+                    self.de.consume_header();
                     return Ok(None);
                 },
                 0x0b | 0x0f => {
-                    self.de.consume_bytes(1); // header
+                    self.de.consume_header();
                     let byte_len = self.de.consume_u8()? as usize - 1 - 2*U8_SIZE; // sub header, bytelen, nitems
                     let num_items = self.de.consume_u8()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U8_SIZE * num_items);
                 },
                 0x0c | 0x10 => {
-                    self.de.consume_bytes(1); // header
+                    self.de.consume_header();
                     let byte_len = self.de.consume_u16()? as usize - 1 - 2*U16_SIZE; // sub header, bytelen, nitems
                     let num_items = self.de.consume_u16()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U16_SIZE * num_items);
                 },
                 0x0d | 0x11 => {
-                    self.de.consume_bytes(1); // header
+                    self.de.consume_header();
                     let byte_len = self.de.consume_u32()? as usize - 1 - 2*U32_SIZE; // sub header, bytelen, nitems
                     let num_items = self.de.consume_u32()? as usize;
                     self.remaining_items = Some(num_items);
@@ -427,7 +431,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                 },
                 0x0e | 0x12 => {
                     // FIXME: num items is at end
-                    self.de.consume_bytes(1); // header
+                    self.de.consume_header();
                     let byte_len = self.de.consume_u64()? as usize - 1 - 2*U64_SIZE; // sub header, bytelen, nitems
                     let num_items = self.de.consume_u64()? as usize;
                     self.remaining_items = Some(num_items);
@@ -477,11 +481,11 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
         if self.remaining_items.is_none() {
             match self.de.peek_byte()? {
                 0x01 => {
-                    self.de.consume_bytes(1); // header
+                    self.de.consume_header();
                     self.remaining_items = Some(0);
                 },
                 0x02 => {
-                    self.de.consume_bytes(1); // header
+                    self.de.consume_header();
                     let byte_length = self.de.consume_u8()? as usize - 1 - U8_SIZE; // sub header + bytelen
                     self.de.consume_padding()?;
 
@@ -494,7 +498,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     return v;
                 },
                 0x03 => {
-                    self.de.consume_bytes(1); // header
+                    self.de.consume_header();
                     let byte_length = self.de.consume_u16()? as usize - 1 - U16_SIZE; // header + bytelen
                     self.de.consume_padding()?;
 
@@ -507,7 +511,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     return v;
                 },
                 0x04 => {
-                    self.de.consume_bytes(1); // header
+                    self.de.consume_header();
                     let byte_length = self.de.consume_u32()? as usize - 1 - U32_SIZE; // header + bytelen
                     self.de.consume_padding()?;
 
@@ -520,7 +524,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     return v;
                 },
                 0x05 => {
-                    self.de.consume_bytes(1); // header
+                    self.de.consume_header();
                     let byte_length = self.de.consume_u64()? as usize - 1 - U64_SIZE; // header + bytelen
                     self.de.consume_padding()?;
 
@@ -535,10 +539,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                 0x06 => {
                     self.de.consume_bytes(1 + U8_SIZE); // header + bytelength (unused)
 
-                    let mut bytes: [u8; U8_SIZE] = Default::default();
-                    bytes.copy_from_slice(&self.de.input[..U8_SIZE]);
-                    let length = u8::from_le_bytes(bytes) as usize;
-                    self.de.consume_bytes(U8_SIZE); // num items
+                    let length = self.de.consume_u8()? as usize;
                     self.de.consume_padding()?;
 
                     self.remaining_items = Some(length);
@@ -547,10 +548,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                 0x07 => {
                     self.de.consume_bytes(1 + U16_SIZE); // header + bytelength (unused)
 
-                    let mut bytes: [u8; U16_SIZE] = Default::default();
-                    bytes.copy_from_slice(&self.de.input[..U16_SIZE]);
-                    let length = u16::from_le_bytes(bytes) as usize;
-                    self.de.consume_bytes(U16_SIZE); // num items
+                    let length = self.de.consume_u16()? as usize;
                     self.de.consume_padding()?;
 
                     self.remaining_items = Some(length);
@@ -559,29 +557,29 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                 0x08 => {
                     self.de.consume_bytes(1 + U32_SIZE); // header + bytelength (unused)
 
-                    let mut bytes: [u8; U32_SIZE] = Default::default();
-                    bytes.copy_from_slice(&self.de.input[..U32_SIZE]);
-                    let length = u32::from_le_bytes(bytes) as usize;
-                    self.de.consume_bytes(U32_SIZE); // num items
+                    let length = self.de.consume_u32()? as usize;
                     self.de.consume_padding()?;
 
                     self.remaining_items = Some(length);
                     self.index_size = Some(length * U32_SIZE);
                 },
                 0x09 => {
-                    self.de.consume_bytes(1 + U64_SIZE); // header + bytelength (unused)
+                    // nritems at end of data for 8-byte case
+                    self.de.consume_header();
+
+                    let bytelength = self.de.consume_u64()? - 1 - 8; // sub header and bytelength
+                    let start = (bytelength - 8) as usize;
+                    let end = bytelength as usize;
 
                     let mut bytes: [u8; U64_SIZE] = Default::default();
-                    bytes.copy_from_slice(&self.de.input[..U64_SIZE]);
+                    bytes.copy_from_slice(&self.de.input[start..end]);
                     let length = u64::from_le_bytes(bytes) as usize;
-                    self.de.consume_bytes(U64_SIZE); // num items
-                    self.de.consume_padding()?;
 
                     self.remaining_items = Some(length);
-                    self.index_size = Some(length * U64_SIZE);
+                    self.index_size = Some((length * U64_SIZE) + U64_SIZE); // consume nritems
                 },
                 0x13 => {
-                    self.de.consume_bytes(1);
+                    self.de.consume_header();
 
                     let mut buf: [u8; 8] = [0; 8];
                     let mut length_bits = buf.as_mut_bitslice::<LittleEndian>();
@@ -604,8 +602,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                         }
                     }
 
-                    let bytelength = dbg!(u64::from_le_bytes(buf)) as usize;
-                    dbg!(header_size);
+                    let bytelength = u64::from_le_bytes(buf) as usize;
 
                     let remaining_bytes = bytelength - header_size;
 
@@ -629,7 +626,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                         }
                     }
 
-                    let num_items = dbg!(u64::from_le_bytes(buf)) as usize;
+                    let num_items = u64::from_le_bytes(buf) as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(index_size);
                 }
@@ -886,7 +883,7 @@ mod tests {
         assert_eq!(from_bytes::<Vec<u64>>(&[0x06, 0x09, 0x03, 0x31, 0x32, 0x33, 0x03, 0x04, 0x05]).unwrap(), expected);
         assert_eq!(from_bytes::<Vec<u64>>(&[0x07, 0x0e, 0x00, 0x03, 0x00, 0x31, 0x32, 0x33, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00]).unwrap(), expected);
         assert_eq!(from_bytes::<Vec<u64>>(&[0x08, 0x18, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x31, 0x32, 0x33, 0x09, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00]).unwrap(), expected);
-//        assert_eq!(from_bytes::<Vec<u64>>(&[0x09, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x32, 0x33, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]).unwrap(), expected);
+        assert_eq!(from_bytes::<Vec<u64>>(&[0x09, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x32, 0x33, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]).unwrap(), expected);
     }
 
     #[test]
@@ -912,5 +909,10 @@ mod tests {
 
         assert_eq!(from_bytes::<Person>(&[0x0b, 0x14, 0x02, 0x44, 0x6e, 0x61, 0x6d, 0x65, 0x43, 0x42, 0x6f, 0x62, 0x43, 0x61, 0x67, 0x65,
             0x28, 0x17, 0x0c, 0x03]).unwrap(), Person { name: "Bob".to_owned(), age: 23 });
+    }
+
+    #[test]
+    fn object_compact() {
+
     }
 }
