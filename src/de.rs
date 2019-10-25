@@ -20,14 +20,14 @@ impl<'de> Deserializer<'de> {
     fn peek_byte(&self) -> Result<u8> {
         match self.input.get(0) {
             Some(b) => Ok(*b),
-            None => Err(Error::Message("eof".to_owned())),
+            None => Err(Error::Eof),
         }
     }
 
     fn peek_bytes<I: SliceIndex<[u8]>>(&self, index: I) -> Result<&<I as SliceIndex<[u8]>>::Output> {
         match self.input.get(index) {
             Some(b) => Ok(b),
-            None => Err(Error::Message("eof".to_owned())),
+            None => Err(Error::Eof),
         }
     }
 
@@ -90,14 +90,14 @@ impl<'de> Deserializer<'de> {
                 self.consume_bytes(1);
                 Ok(true)
             },
-            _   => Err(Error::Message("ExpectedBoolean".to_owned()))
+            _   => Err(Error::ExpectedBoolean),
         }
     }
 
     fn parse_double(&mut self) -> Result<f64> {
         match self.peek_byte()? {
             0x1b => self.consume_bytes(1),
-            _    => return Err(Error::Message("ExpectedDouble".to_owned()))
+            _    => return Err(Error::ExpectedDouble),
         }
 
         let mut bytes: [u8; 8] = Default::default();
@@ -122,7 +122,7 @@ impl<'de> Deserializer<'de> {
                 le_bytes[..n_bytes].copy_from_slice(&self.input[..n_bytes]);
                 let v = match T::try_from(i64::from_le_bytes(le_bytes)) {
                     Ok(v) => v,
-                    Err(_) => return Err(Error::Message("NumberTooLarge".to_owned())),
+                    Err(_) => return Err(Error::NumberTooLarge),
                 };
                 self.consume_bytes(n_bytes); // number of bytes header plus bytes
                 Ok(v)
@@ -130,7 +130,7 @@ impl<'de> Deserializer<'de> {
             _ => {
                 // else parse into a u64, then attempt to fit into current signed type
                 let v_u64: u64 = self.parse_unsigned()?;
-                T::try_from(v_u64).map_err(|_| Error::Message("NumberTooLarge".to_owned()))
+                T::try_from(v_u64).map_err(|_| Error::NumberTooLarge)
             }
         }
     }
@@ -145,7 +145,7 @@ impl<'de> Deserializer<'de> {
                 le_bytes[..n_bytes].copy_from_slice(&self.input[..n_bytes]);
                 let v = match T::try_from(u64::from_le_bytes(le_bytes)) {
                     Ok(v) => v,
-                    Err(_) => return Err(Error::Message("NumberTooLarge".to_owned())),
+                    Err(_) => return Err(Error::NumberTooLarge),
                 };
                 self.consume_bytes(n_bytes); // number of bytes header plus bytes
                 Ok(v)
@@ -153,12 +153,12 @@ impl<'de> Deserializer<'de> {
             b if b >= 0x30 && b <= 0x39 => {
                 let v = match T::try_from((b - 0x30) as u64) {
                     Ok(v) => v,
-                    Err(_) => return Err(Error::Message("NumberTooLarge".to_owned())),
+                    Err(_) => return Err(Error::NumberTooLarge),
                 };
                 self.consume_bytes(1);
                 Ok(v)
             },
-            _ => Err(Error::Message("ExpectedInteger".to_owned())),
+            _ => Err(Error::ExpectedInteger),
         }
     }
 
@@ -175,7 +175,7 @@ impl<'de> Deserializer<'de> {
                         self.consume_bytes(length);
                         Ok(s.to_owned())
                     },
-                    Err(_) => Err(Error::Message("InvalidUtf8".to_owned()))
+                    Err(utf8err) => Err(Error::InvalidUtf8(utf8err)),
                 }
             },
             b if b >= 0x40 && b <= 0xbe => {
@@ -190,10 +190,10 @@ impl<'de> Deserializer<'de> {
                         self.consume_bytes(length);
                         Ok(s.to_owned())
                     },
-                    Err(_) => Err(Error::Message("InvalidUtf8".to_owned()))
+                    Err(utf8err) => Err(Error::InvalidUtf8(utf8err)),
                 }
             },
-            _ => Err(Error::Message("ExpectedString".to_owned())),
+            _ => Err(Error::ExpectedString),
         }
     }
 }
@@ -204,7 +204,7 @@ pub fn from_bytes<'a, T: Deserialize<'a>>(s: &'a [u8]) -> Result<T> {
     if deserializer.input.is_empty() {
         Ok(t)
     } else {
-        Err(Error::Message("trailing bytes".to_owned()))
+        Err(Error::TrailingBytes(deserializer.input.len()))
     }
 }
 
@@ -218,15 +218,15 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         match self.peek_byte()? {
-            x if (x >= 0x01 && x <= 0x09) || x == 0x13 => self.deserialize_seq(visitor),
-            x if (x >= 0x0a && x <= 0x12) || x == 0x14 => self.deserialize_map(visitor),
+            b if (b >= 0x01 && b <= 0x09) || b == 0x13 => self.deserialize_seq(visitor),
+            b if (b >= 0x0a && b <= 0x12) || b == 0x14 => self.deserialize_map(visitor),
             0x18 => self.deserialize_unit(visitor),
             0x19 | 0x1a => self.deserialize_bool(visitor),
             0x1b => self.deserialize_f64(visitor),
-            x if (x >= 0x20 && x <= 0x27) || (x >= 0x3a && x <= 0x3f) => self.deserialize_i64(visitor),
-            x if x >= 0x28 && x <= 0x39 => self.deserialize_u64(visitor),
-            x if x >= 0x40 && x <= 0xbf => self.deserialize_string(visitor),
-            _ => Err(Error::Message("unimplemented".to_owned()))
+            b if (b >= 0x20 && b <= 0x27) || (b >= 0x3a && b <= 0x3f) => self.deserialize_i64(visitor),
+            b if b >= 0x28 && b <= 0x39 => self.deserialize_u64(visitor),
+            b if b >= 0x40 && b <= 0xbf => self.deserialize_string(visitor),
+            b => Err(Error::Unimplemented(b)),
         }
     }
 
