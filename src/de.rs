@@ -1,15 +1,11 @@
 use serde::Deserialize;
-use serde::de::{
-    self, DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess,
-    VariantAccess, Visitor,
-};
-use bitvec::prelude::{BitVec, LittleEndian};
+use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
+use bitvec::prelude::LittleEndian;
 use bitvec::bits::BitsMut;
 
 use crate::error::{Error, Result};
 use std::convert::TryFrom;
 use crate::{U8_SIZE, U16_SIZE, U32_SIZE, U64_SIZE};
-use std::io::BufRead;
 use std::slice::SliceIndex;
 
 pub struct Deserializer<'de> {
@@ -131,7 +127,7 @@ impl<'de> Deserializer<'de> {
                 self.consume_bytes(n_bytes); // number of bytes header plus bytes
                 Ok(v)
             },
-            b => {
+            _ => {
                 // else parse into a u64, then attempt to fit into current signed type
                 let v_u64: u64 = self.parse_unsigned()?;
                 T::try_from(v_u64).map_err(|_| Error::Message("NumberTooLarge".to_owned()))
@@ -179,7 +175,7 @@ impl<'de> Deserializer<'de> {
                         self.consume_bytes(length);
                         Ok(s.to_owned())
                     },
-                    Err(e) => Err(Error::Message("InvalidUtf8".to_owned()))
+                    Err(_) => Err(Error::Message("InvalidUtf8".to_owned()))
                 }
             },
             b if b >= 0x40 && b <= 0xbe => {
@@ -194,7 +190,7 @@ impl<'de> Deserializer<'de> {
                         self.consume_bytes(length);
                         Ok(s.to_owned())
                     },
-                    Err(e) => Err(Error::Message("InvalidUtf8".to_owned()))
+                    Err(_) => Err(Error::Message("InvalidUtf8".to_owned()))
                 }
             },
             _ => Err(Error::Message("ExpectedString".to_owned())),
@@ -289,7 +285,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_f64(self.parse_double()?)
     }
 
-    fn deserialize_char<V>(self, visitor: V) -> Result<V::Value> where
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         unimplemented!()
     }
@@ -304,17 +300,17 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_string(self.parse_string()?)
     }
 
-    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value> where
+    fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         unimplemented!()
     }
 
-    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value> where
+    fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         unimplemented!()
     }
 
-    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value> where
+    fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         unimplemented!()
     }
@@ -335,7 +331,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         self.deserialize_unit(visitor)
     }
 
-    fn deserialize_newtype_struct<V>(self, name: &'static str, visitor: V) -> Result<V::Value> where
+    fn deserialize_newtype_struct<V>(self, _name: &'static str, _visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         unimplemented!()
     }
@@ -345,12 +341,12 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_seq(ArrayDeserializer::new(&mut self))
     }
 
-    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value> where
+    fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         unimplemented!()
     }
 
-    fn deserialize_tuple_struct<V>(self, name: &'static str, len: usize, visitor: V) -> Result<V::Value> where
+    fn deserialize_tuple_struct<V>(self, _name: &'static str, _len: usize, _visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         unimplemented!()
     }
@@ -365,7 +361,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_map(MapDeserializer::new(&mut self))
     }
 
-    fn deserialize_enum<V>(self, name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value> where
+    fn deserialize_enum<V>(self, _name: &'static str, _variants: &'static [&'static str], _visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         unimplemented!()
     }
@@ -375,7 +371,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         self.deserialize_string(visitor)
     }
 
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value> where
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value> where
         V: Visitor<'de> {
         unimplemented!()
     }
@@ -410,21 +406,21 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                 },
                 0x0b | 0x0f => {
                     self.de.consume_header();
-                    let byte_len = self.de.consume_u8()? as usize - 1 - 2*U8_SIZE; // sub header, bytelen, nitems
+                    let _byte_len = self.de.consume_u8()? as usize - 1 - 2*U8_SIZE; // sub header, bytelen, nitems
                     let num_items = self.de.consume_u8()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U8_SIZE * num_items);
                 },
                 0x0c | 0x10 => {
                     self.de.consume_header();
-                    let byte_len = self.de.consume_u16()? as usize - 1 - 2*U16_SIZE; // sub header, bytelen, nitems
+                    let _byte_len = self.de.consume_u16()? as usize - 1 - 2*U16_SIZE; // sub header, bytelen, nitems
                     let num_items = self.de.consume_u16()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U16_SIZE * num_items);
                 },
                 0x0d | 0x11 => {
                     self.de.consume_header();
-                    let byte_len = self.de.consume_u32()? as usize - 1 - 2*U32_SIZE; // sub header, bytelen, nitems
+                    let _byte_len = self.de.consume_u32()? as usize - 1 - 2*U32_SIZE; // sub header, bytelen, nitems
                     let num_items = self.de.consume_u32()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U32_SIZE * num_items);
@@ -432,7 +428,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                 0x0e | 0x12 => {
                     // FIXME: num items is at end
                     self.de.consume_header();
-                    let byte_len = self.de.consume_u64()? as usize - 1 - 2*U64_SIZE; // sub header, bytelen, nitems
+                    let _byte_len = self.de.consume_u64()? as usize - 1 - 2*U64_SIZE; // sub header, bytelen, nitems
                     let num_items = self.de.consume_u64()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U64_SIZE * num_items);
@@ -442,7 +438,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                     self.de.consume_header();
 
                     let mut buf: [u8; 8] = [0; 8];
-                    let mut length_bits = buf.as_mut_bitslice::<LittleEndian>();
+                    let length_bits = buf.as_mut_bitslice::<LittleEndian>();
 
                     let mut header_size = 1; // header, increment with bytelen bytes
                     let mut idx = 0;
@@ -467,7 +463,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                     let remaining_bytes = bytelength - header_size;
 
                     let mut buf: [u8; 8] = [0; 8];
-                    let mut length_bits = buf.as_mut_bitslice::<LittleEndian>();
+                    let length_bits = buf.as_mut_bitslice::<LittleEndian>();
                     let mut index_size = 0;
 
                     let mut idx = 0;
@@ -635,7 +631,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     self.de.consume_header();
 
                     let mut buf: [u8; 8] = [0; 8];
-                    let mut length_bits = buf.as_mut_bitslice::<LittleEndian>();
+                    let length_bits = buf.as_mut_bitslice::<LittleEndian>();
 
                     let mut header_size = 1; // header, increment with bytelen bytes
                     let mut idx = 0;
@@ -660,7 +656,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     let remaining_bytes = bytelength - header_size;
 
                     let mut buf: [u8; 8] = [0; 8];
-                    let mut length_bits = buf.as_mut_bitslice::<LittleEndian>();
+                    let length_bits = buf.as_mut_bitslice::<LittleEndian>();
                     let mut index_size = 0;
 
                     let mut idx = 0;
@@ -705,7 +701,6 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json;
     use std::collections::HashMap;
 
     #[test]

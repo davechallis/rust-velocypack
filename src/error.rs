@@ -31,9 +31,17 @@ impl std::error::Error for Error {
     fn description(&self) -> &str {
         match *self {
             Error::Message(ref msg) => msg,
-
-            // TODO: handle other error variants
-            _ => "unhandled error type",
+            // TODO: add other error variants
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    #[test]
+    fn error() {
+        assert_eq!(crate::error::Error::Message("foo".to_owned()).description(), "foo");
     }
 }
