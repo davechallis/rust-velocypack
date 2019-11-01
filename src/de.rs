@@ -322,7 +322,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                 self.consume_bytes(1);
                 visitor.visit_unit()
             },
-            _    => Err(Error::Message("ExpectedNull".to_owned()))
+            _    => Err(Error::ExpectedNull)
         }
     }
 
@@ -486,7 +486,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(index_size);
                 },
-                _ => return Err(Error::Message("ExpectedObject".to_owned()))
+                _ => return Err(Error::ExpectedObject)
             }
         }
 
@@ -679,7 +679,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(index_size);
                 }
-                _ => return Err(Error::Message("ExpectedArray".to_owned()))
+                _ => return Err(Error::ExpectedArray)
             }
         }
 

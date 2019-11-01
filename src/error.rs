@@ -14,10 +14,13 @@ pub enum Error {
     // Variants created directly by Serializer and Deserializer (format specific).
 
     Eof,
+    ExpectedNull,
     ExpectedBoolean,
     ExpectedInteger,
     ExpectedDouble,
     ExpectedString,
+    ExpectedArray,
+    ExpectedObject,
     NumberTooLarge,
     InvalidUtf8(Utf8Error),
     TrailingBytes(usize),
@@ -41,10 +44,13 @@ impl Display for Error {
         match *self {
             Error::Message(ref msg) => write!(f, "{}", msg),
             Error::Eof => write!(f, "unexpected end of input"),
+            Error::ExpectedNull => write!(f, "expected null value in input"),
             Error::ExpectedBoolean => write!(f, "expected boolean value in input"),
             Error::ExpectedInteger => write!(f, "expected integer value in input"),
             Error::ExpectedDouble => write!(f,"expected double value in input"),
             Error::ExpectedString => write!(f, "expected string value in input"),
+            Error::ExpectedArray => write!(f, "expected array value in input"),
+            Error::ExpectedObject => write!(f, "expected object value in input"),
             Error::NumberTooLarge => write!(f, "number was too large to parse into requested type"),
             Error::InvalidUtf8(_utf8err) => write!(f, "invalid utf8 encountered when parsing string"),
             Error::TrailingBytes(length) => write!(f, "found {} trailing bytes after parsing input", length),
