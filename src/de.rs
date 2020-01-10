@@ -1,3 +1,4 @@
+use log::debug;
 use serde::Deserialize;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use bitvec::prelude::LittleEndian;
@@ -83,10 +84,12 @@ impl<'de> Deserializer<'de> {
     fn parse_bool(&mut self) -> Result<bool> {
         match self.peek_byte()? {
             0x19 =>  {
+                debug!("0x19 -> deserializing boolean [false]");
                 self.consume_bytes(1);
                 Ok(false)
             },
             0x1a => {
+                debug!("0x1a -> deserializing boolean [true]");
                 self.consume_bytes(1);
                 Ok(true)
             },
@@ -96,7 +99,10 @@ impl<'de> Deserializer<'de> {
 
     fn parse_double(&mut self) -> Result<f64> {
         match self.peek_byte()? {
-            0x1b => self.consume_bytes(1),
+            0x1b => {
+                debug!("0x1b -> deserializing double");
+                self.consume_bytes(1)
+            },
             _    => return Err(Error::ExpectedDouble),
         }
 
@@ -111,21 +117,48 @@ impl<'de> Deserializer<'de> {
     fn parse_signed<T: TryFrom<i64> + TryFrom<u64>>(&mut self) -> Result<T> {
         match self.peek_byte()? {
             b if b >= 0x3a && b <= 0x3f => {
+                debug!("0x{:x?} -> deserializing small negative integer", b);
                 self.consume_bytes(1);
                 Ok(T::try_from(-(0x40 - (b as i64))).unwrap_or_else(|_| panic!("Unable to convert to signed")))
             },
             b if b >= 0x20 && b <= 0x27 => {
+                debug!("0x{:x?} -> deserializing signed integer (1 to 8 bytes)", b);
                 let n_bytes = (b - 0x1f) as usize;
-                self.consume_bytes(1);
+                self.consume_header();
 
-                let mut le_bytes: [u8; 8] = [0xff; 8];
-                le_bytes[..n_bytes].copy_from_slice(&self.input[..n_bytes]);
-                let v = match T::try_from(i64::from_le_bytes(le_bytes)) {
+                let v: i64 = match n_bytes {
+                    1 => {
+                        let mut le_bytes: [u8; 1] = [0x00; 1];
+                        le_bytes[..n_bytes].copy_from_slice(&self.input[..n_bytes]);
+                        i8::from_le_bytes(le_bytes) as i64
+                    },
+                    2 => {
+                        let mut le_bytes: [u8; 2] = [0x00; 2];
+                        le_bytes[..n_bytes].copy_from_slice(&self.input[..n_bytes]);
+                        i16::from_le_bytes(le_bytes) as i64
+                    },
+                    4 => {
+                        let mut le_bytes: [u8; 4] = [0x00; 4];
+                        le_bytes[..n_bytes].copy_from_slice(&self.input[..n_bytes]);
+                        i32::from_le_bytes(le_bytes) as i64
+                    },
+                    8 => {
+                        let mut le_bytes: [u8; 8] = [0x00; 8];
+                        le_bytes[..n_bytes].copy_from_slice(&self.input[..n_bytes]);
+                        i64::from_le_bytes(le_bytes)
+                    },
+                    n => {
+                        let msg = format!("Invalid byte length for signed integer: {} (valid: 1, 2, 4, 8)", n);
+                        return Err(Error::Message(msg));
+                    },
+                };
+
+                let value = match T::try_from(v) {
                     Ok(v) => v,
                     Err(_) => return Err(Error::NumberTooLarge),
                 };
                 self.consume_bytes(n_bytes); // number of bytes header plus bytes
-                Ok(v)
+                Ok(value)
             },
             _ => {
                 // else parse into a u64, then attempt to fit into current signed type
@@ -138,6 +171,7 @@ impl<'de> Deserializer<'de> {
     fn parse_unsigned<T: TryFrom<u64>>(&mut self) -> Result<T> {
         match self.peek_byte()? {
             b if b >= 0x28 && b <= 0x2f => {
+                debug!("0x{:x?} -> deserializing unsigned integer (1 to 8 bytes)", b);
                 let n_bytes = (b - 0x27) as usize;
                 self.consume_bytes(1);
 
@@ -151,6 +185,7 @@ impl<'de> Deserializer<'de> {
                 Ok(v)
             },
             b if b >= 0x30 && b <= 0x39 => {
+                debug!("0x{:x?} -> deserializing unsigned integer (1 to 9)", b);
                 let v = match T::try_from((b - 0x30) as u64) {
                     Ok(v) => v,
                     Err(_) => return Err(Error::NumberTooLarge),
@@ -198,14 +233,24 @@ impl<'de> Deserializer<'de> {
     }
 }
 
+/// Deserialize a single VelocyPack's bytes into a struct.
 pub fn from_bytes<'a, T: Deserialize<'a>>(s: &'a [u8]) -> Result<T> {
-    let mut deserializer = Deserializer::from_bytes(s);
-    let t = T::deserialize(&mut deserializer)?;
-    if deserializer.input.is_empty() {
+    let (t, remaining_bytes) = first_from_bytes(s)?;
+    if remaining_bytes.is_empty() {
         Ok(t)
     } else {
-        Err(Error::TrailingBytes(deserializer.input.len()))
+        Err(Error::TrailingBytes(remaining_bytes.len()))
     }
+}
+
+/// Deserialize the first VelocyPack found in given bytes, and return it along with any remaining
+/// bytes. Typically used when dealing with
+/// [VelocyStream](https://github.com/arangodb/velocystream), which packs either multiple
+/// VelocyPacks into bytes, or packs a VelocyPack header followed by other data into bytes.
+pub fn first_from_bytes<'a, T: Deserialize<'a>>(s: &'a [u8]) -> Result<(T, &'a [u8])> {
+    let mut deserializer = Deserializer::from_bytes(s);
+    let t = T::deserialize(&mut deserializer)?;
+    Ok((t, deserializer.input))
 }
 
 impl<'de> Deserializer<'de> {
@@ -319,6 +364,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de> {
         match self.peek_byte()? {
             0x18 => {
+                debug!("0x18 -> deserializing null");
                 self.consume_bytes(1);
                 visitor.visit_unit()
             },
@@ -410,6 +456,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                     let num_items = self.de.consume_u8()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U8_SIZE * num_items);
+                    self.de.consume_padding()?;
                 },
                 0x0c | 0x10 => {
                     self.de.consume_header();
@@ -417,6 +464,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                     let num_items = self.de.consume_u16()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U16_SIZE * num_items);
+                    self.de.consume_padding()?;
                 },
                 0x0d | 0x11 => {
                     self.de.consume_header();
@@ -424,6 +472,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                     let num_items = self.de.consume_u32()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U32_SIZE * num_items);
+                    self.de.consume_padding()?;
                 },
                 0x0e | 0x12 => {
                     // FIXME: num items is at end
@@ -432,6 +481,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                     let num_items = self.de.consume_u64()? as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(U64_SIZE * num_items);
+                    self.de.consume_padding()?;
                 },
                 0x14 => {
                     // compact object
@@ -530,10 +580,12 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
         if self.remaining_items.is_none() {
             match self.de.peek_byte()? {
                 0x01 => {
+                    debug!("0x01 -> deserializing empty array");
                     self.de.consume_header();
                     self.remaining_items = Some(0);
                 },
                 0x02 => {
+                    debug!("0x02 -> deserializing array without index table (1 byte length)");
                     self.de.consume_header();
                     let byte_length = self.de.consume_u8()? as usize - 1 - U8_SIZE; // sub header + bytelen
                     self.de.consume_padding()?;
@@ -547,6 +599,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     return v;
                 },
                 0x03 => {
+                    debug!("0x03 -> deserializing array without index table (2 byte length)");
                     self.de.consume_header();
                     let byte_length = self.de.consume_u16()? as usize - 1 - U16_SIZE; // header + bytelen
                     self.de.consume_padding()?;
@@ -560,6 +613,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     return v;
                 },
                 0x04 => {
+                    debug!("0x04 -> deserializing array without index table (4 byte length)");
                     self.de.consume_header();
                     let byte_length = self.de.consume_u32()? as usize - 1 - U32_SIZE; // header + bytelen
                     self.de.consume_padding()?;
@@ -573,6 +627,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     return v;
                 },
                 0x05 => {
+                    debug!("0x05 -> deserializing array without index table (8 byte length)");
                     self.de.consume_header();
                     let byte_length = self.de.consume_u64()? as usize - 1 - U64_SIZE; // header + bytelen
                     self.de.consume_padding()?;
@@ -586,6 +641,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     return v;
                 },
                 0x06 => {
+                    debug!("0x06 -> deserializing array with index table (1 byte length)");
                     self.de.consume_bytes(1 + U8_SIZE); // header + bytelength (unused)
 
                     let length = self.de.consume_u8()? as usize;
@@ -595,6 +651,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     self.index_size = Some(length * U8_SIZE);
                 },
                 0x07 => {
+                    debug!("0x07 -> deserializing array with index table (2 byte length)");
                     self.de.consume_bytes(1 + U16_SIZE); // header + bytelength (unused)
 
                     let length = self.de.consume_u16()? as usize;
@@ -604,6 +661,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     self.index_size = Some(length * U16_SIZE);
                 },
                 0x08 => {
+                    debug!("0x08 -> deserializing array with index table (4 byte length)");
                     self.de.consume_bytes(1 + U32_SIZE); // header + bytelength (unused)
 
                     let length = self.de.consume_u32()? as usize;
@@ -613,6 +671,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     self.index_size = Some(length * U32_SIZE);
                 },
                 0x09 => {
+                    debug!("0x09 -> deserializing array with index table (8 byte length)");
                     // nritems at end of data for 8-byte case
                     self.de.consume_header();
 
@@ -702,6 +761,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use serde_json::json;
 
     #[test]
     fn bool_false() {
@@ -769,6 +829,29 @@ mod tests {
         assert_eq!(from_bytes::<i8>(&[0x28, 0x7f]).unwrap(), std::i8::MAX);
         assert_eq!(from_bytes::<i8>(&[0x20, 0xf9]).unwrap(), -7_i8);
         assert_eq!(from_bytes::<i8>(&[0x28, 0x0a]).unwrap(), 10_i8);
+    }
+
+    #[test]
+    fn i16() {
+        // small negative integers
+        for i in 1..7 {
+            assert_eq!(from_bytes::<i16>(&[0x40 - i]).unwrap(), -(i as i16));
+        }
+
+        for i in 0..10 {
+            assert_eq!(from_bytes::<i16>(&[0x30 + i]).unwrap(), i as i16);
+        }
+
+        // signed int, little endian, 1 byte
+        assert_eq!(from_bytes::<i16>(&[0x20, 0x80]).unwrap(), std::i8::MIN as i16);
+        assert_eq!(from_bytes::<i16>(&[0x28, 0x7f]).unwrap(), std::i8::MAX as i16);
+        assert_eq!(from_bytes::<i16>(&[0x20, 0xf9]).unwrap(), -7_i16);
+        assert_eq!(from_bytes::<i16>(&[0x28, 0x0a]).unwrap(), 10_i16);
+
+        // signed int, little endian, 2 bytes
+        assert_eq!(from_bytes::<i16>(&[0x21, 0x00, 0x80]).unwrap(), std::i16::MIN);
+        assert_eq!(from_bytes::<i16>(&[0x29, 0xff, 0x7f]).unwrap(), std::i16::MAX);
+        assert_eq!(from_bytes::<i16>(&[0x21, 0xc8, 0x00]).unwrap(), 200_i16);
     }
 
     #[test]
@@ -964,5 +1047,47 @@ mod tests {
         let mut expected = HashMap::new();
         expected.insert("a".to_owned(), 1);
         assert_eq!(from_bytes::<HashMap<String, u8>>(&[0x14, 0x06, 0x41, 0x61, 0x31, 0x01]).unwrap(), expected);
+    }
+
+    #[test]
+    fn vst_header() {
+        // VelocyStream header returned by ArangoDB 3.5.3 for /_admin/echo query
+        let expected = json!(
+{
+    "authorized": true,
+    "client": {
+        "address": "172.17.0.1",
+        "id": "0",
+        "port": 33402
+    },
+    "database": "_system",
+    "headers": {},
+    "internals": {},
+    "isAdminUser": true,
+    "parameters": {},
+    "path": "/",
+    "portType": "tcp/ip",
+    "prefix": "/",
+    "protocol": "vst",
+    "rawRequestBody": {
+        "data": [],
+        "type": "Buffer"
+    },
+    "rawSuffix": [],
+    "requestType": "GET",
+    "server": {
+        "address": "0.0.0.0",
+        "endpoint": "http://0.0.0.0:8529",
+        "port": 8529
+    },
+    "suffix": [],
+    "url": "/_admin/echo",
+    "user": null
+}
+        );
+        let data = vec![
+0x0c,0x73,0x01,0x12,0x00,0x00,0x00,0x00,0x00,0x4a,0x61,0x75,0x74,0x68,0x6f,0x72,0x69,0x7a,0x65,0x64,0x1a,0x44,0x75,0x73,0x65,0x72,0x18,0x4b,0x69,0x73,0x41,0x64,0x6d,0x69,0x6e,0x55,0x73,0x65,0x72,0x1a,0x48,0x64,0x61,0x74,0x61,0x62,0x61,0x73,0x65,0x47,0x5f,0x73,0x79,0x73,0x74,0x65,0x6d,0x43,0x75,0x72,0x6c,0x4c,0x2f,0x5f,0x61,0x64,0x6d,0x69,0x6e,0x2f,0x65,0x63,0x68,0x6f,0x48,0x70,0x72,0x6f,0x74,0x6f,0x63,0x6f,0x6c,0x43,0x76,0x73,0x74,0x46,0x73,0x65,0x72,0x76,0x65,0x72,0x0b,0x3b,0x03,0x47,0x61,0x64,0x64,0x72,0x65,0x73,0x73,0x47,0x30,0x2e,0x30,0x2e,0x30,0x2e,0x30,0x44,0x70,0x6f,0x72,0x74,0x29,0x51,0x21,0x48,0x65,0x6e,0x64,0x70,0x6f,0x69,0x6e,0x74,0x53,0x68,0x74,0x74,0x70,0x3a,0x2f,0x2f,0x30,0x2e,0x30,0x2e,0x30,0x2e,0x30,0x3a,0x38,0x35,0x32,0x39,0x03,0x1b,0x13,0x48,0x70,0x6f,0x72,0x74,0x54,0x79,0x70,0x65,0x46,0x74,0x63,0x70,0x2f,0x69,0x70,0x46,0x63,0x6c,0x69,0x65,0x6e,0x74,0x0b,0x26,0x03,0x47,0x61,0x64,0x64,0x72,0x65,0x73,0x73,0x4a,0x31,0x37,0x32,0x2e,0x31,0x37,0x2e,0x30,0x2e,0x31,0x44,0x70,0x6f,0x72,0x74,0x29,0x7a,0x82,0x42,0x69,0x64,0x41,0x30,0x03,0x1e,0x16,0x49,0x69,0x6e,0x74,0x65,0x72,0x6e,0x61,0x6c,0x73,0x0a,0x46,0x70,0x72,0x65,0x66,0x69,0x78,0x41,0x2f,0x47,0x68,0x65,0x61,0x64,0x65,0x72,0x73,0x0a,0x4b,0x72,0x65,0x71,0x75,0x65,0x73,0x74,0x54,0x79,0x70,0x65,0x43,0x47,0x45,0x54,0x4a,0x70,0x61,0x72,0x61,0x6d,0x65,0x74,0x65,0x72,0x73,0x0a,0x46,0x73,0x75,0x66,0x66,0x69,0x78,0x01,0x49,0x72,0x61,0x77,0x53,0x75,0x66,0x66,0x69,0x78,0x01,0x44,0x70,0x61,0x74,0x68,0x41,0x2f,0x4e,0x72,0x61,0x77,0x52,0x65,0x71,0x75,0x65,0x73,0x74,0x42,0x6f,0x64,0x79,0x0b,0x17,0x02,0x44,0x74,0x79,0x70,0x65,0x46,0x42,0x75,0x66,0x66,0x65,0x72,0x44,0x64,0x61,0x74,0x61,0x01,0x0f,0x03,0x09,0x00,0xa9,0x00,0x28,0x00,0xea,0x00,0xd6,0x00,0x1b,0x00,0x03,0x01,0x22,0x01,0x99,0x00,0xe1,0x00,0x4a,0x00,0x29,0x01,0x17,0x01,0xf3,0x00,0x57,0x00,0x0f,0x01,0x39,0x00,0x15,0x00
+        ];
+        assert_eq!(from_bytes::<serde_json::Value>(&data).unwrap(), expected);
     }
 }

@@ -63,8 +63,6 @@ impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
-
     #[test]
     fn error() {
         assert_eq!(&format!("{}", crate::error::Error::Message("foo".to_owned())), "foo");
