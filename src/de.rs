@@ -535,7 +535,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                         }
                     }
 
-                    let num_items = buf.len();
+                    let num_items = u64::from_le_bytes(buf) as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(index_size);
                 },
@@ -738,7 +738,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                         }
                     }
 
-                    let num_items = buf.len();
+                    let num_items = u64::from_le_bytes(buf) as usize;
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(index_size);
                 }
