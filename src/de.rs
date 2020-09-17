@@ -1,13 +1,15 @@
 use log::debug;
 use serde::Deserialize;
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
-use bitvec::prelude::LittleEndian;
-use bitvec::bits::BitsMut;
 
 use crate::error::{Error, Result};
 use std::convert::TryFrom;
 use crate::{U8_SIZE, U16_SIZE, U32_SIZE, U64_SIZE};
 use std::slice::SliceIndex;
+use bitvec::order;
+use bitvec::prelude::Lsb0;
+use bitvec::array::BitArray;
+use bitvec::slice::BitSlice;
 
 pub struct Deserializer<'de> {
     input: &'de [u8],
@@ -488,7 +490,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                     self.de.consume_header();
 
                     let mut buf: [u8; 8] = [0; 8];
-                    let length_bits = buf.as_mut_bitslice::<LittleEndian>();
+                    let length_bits: &mut BitSlice<Lsb0, u8> = bitvec::slice::BitSlice::<Lsb0, u8>::from_slice_mut(&mut buf[..]).unwrap();
 
                     let mut header_size = 1; // header, increment with bytelen bytes
                     let mut idx = 0;
@@ -496,7 +498,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                         let b = self.de.next_byte()?;
                         for n in 0..7 {
                             if (b & (1 << n)) != 0 {
-                                *length_bits.at(idx) = true;
+                                length_bits.set(idx, true);
                             }
                             idx += 1;
                         }
@@ -513,14 +515,15 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                     let remaining_bytes = bytelength - header_size;
 
                     let mut buf: [u8; 8] = [0; 8];
-                    let length_bits = buf.as_mut_bitslice::<LittleEndian>();
-                    let mut index_size = 0;
+                    let length_bits: &mut BitSlice<Lsb0, u8> = bitvec::slice::BitSlice::<Lsb0, u8>::from_slice_mut(&mut buf[..]).unwrap();
 
+                    let mut index_size = 0;
                     let mut idx = 0;
+
                     for b in self.de.input[..remaining_bytes].iter().rev() {
                         for n in 0..7 {
                             if (b & (1 << n)) != 0 {
-                                *length_bits.at(idx) = true;
+                                length_bits.set(idx, true);
                             }
                             idx += 1;
                         }
@@ -532,7 +535,7 @@ impl<'de, 'a> MapAccess<'de> for MapDeserializer<'a, 'de> {
                         }
                     }
 
-                    let num_items = u64::from_le_bytes(buf) as usize;
+                    let num_items = buf.len();
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(index_size);
                 },
@@ -690,7 +693,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     self.de.consume_header();
 
                     let mut buf: [u8; 8] = [0; 8];
-                    let length_bits = buf.as_mut_bitslice::<LittleEndian>();
+                    let length_bits: &mut BitSlice<Lsb0, u8> = bitvec::slice::BitSlice::<Lsb0, u8>::from_slice_mut(&mut buf).unwrap();
 
                     let mut header_size = 1; // header, increment with bytelen bytes
                     let mut idx = 0;
@@ -698,7 +701,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                         let b = self.de.next_byte()?;
                         for n in 0..7 {
                             if (b & (1 << n)) != 0 {
-                                *length_bits.at(idx) = true;
+                                length_bits.set(idx, true);
                             }
                             idx += 1;
                         }
@@ -715,14 +718,15 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                     let remaining_bytes = bytelength - header_size;
 
                     let mut buf: [u8; 8] = [0; 8];
-                    let length_bits = buf.as_mut_bitslice::<LittleEndian>();
+                    let length_bits: &mut BitSlice<Lsb0, u8> = bitvec::slice::BitSlice::<Lsb0, u8>::from_slice_mut(&mut buf).unwrap();
+
                     let mut index_size = 0;
 
                     let mut idx = 0;
                     for b in self.de.input[..remaining_bytes].iter().rev() {
                         for n in 0..7 {
                             if (b & (1 << n)) != 0 {
-                                *length_bits.at(idx) = true;
+                                length_bits.set(idx, true);
                             }
                             idx += 1;
                         }
@@ -734,7 +738,7 @@ impl <'de, 'a> SeqAccess<'de> for ArrayDeserializer<'a, 'de> {
                         }
                     }
 
-                    let num_items = u64::from_le_bytes(buf) as usize;
+                    let num_items = buf.len();
                     self.remaining_items = Some(num_items);
                     self.index_size = Some(index_size);
                 }
