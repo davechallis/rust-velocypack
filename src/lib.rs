@@ -1,3 +1,5 @@
+#[macro_use] extern crate bitvec;
+
 mod de;
 mod error;
 mod ser;

@@ -24,9 +24,9 @@ impl Serializer {
             i if i > -7 => self.output.push((0x40 + i) as u8),
             i => {
                 let b = dbg!(i.to_le_bytes());
-                println!("{}: {:x?}", v, b);
+
                 for bit in (0..8).rev() {
-                    println!("bit: {} = {:x?}", bit, b[bit]);
+
                     if b[bit] != 0xff {
                         if bit == 0 && b[bit] < 0x80 {
                             self.output.push((0x20 + bit + 1) as u8);
